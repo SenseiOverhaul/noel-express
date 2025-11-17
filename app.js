@@ -1,61 +1,134 @@
-const express = require("express");
+import express from "express";
+import cors from "cors";
+import { Pool } from "pg";
+import dotenv from "dotenv";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+
 const app = express();
-const port = process.env.PORT || 3001;
+app.use(cors());
+app.use(express.json());
+dotenv.config();
+const PORT = process.env.PORT;
+const cs = process.env.CS;
 
-app.get("/", (req, res) => res.type('html').send(html));
+const pool = new Pool({
+  connectionString: cs,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+});
+pool.connect();
 
-const server = app.listen(port, () => console.log(`Example app listening on port ${port}!`));
+app.post("/api/postusers", async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const hashedpassword = bcrypt.hash(password, 10);
+    const result = await pool.query(
+      `INSERT INTO projusers(email, password) VALUES($1,$2)`,
+      [email, hashedpassword]
+    );
+    if (!result) {
+      throw new Error("Failed to query into the table: projusers");
+    } else {
+      res.json(result);
+    }
+  } catch (error) {
+    console.log(`${error}`);
+  }
+});
 
-server.keepAliveTimeout = 120 * 1000;
-server.headersTimeout = 120 * 1000;
+app.get("/api/getusers", async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT * FROM projusers`);
+    if (!result) {
+      throw new Error("Error getting users data");
+    } else {
+      res.json(result);
+    }
+  } catch (error) {
+    console.log(`${error}`);
+  }
+});
 
-const html = `
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Hello from Render!</title>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
-    <script>
-      setTimeout(() => {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 },
-          disableForReducedMotion: true
-        });
-      }, 500);
-    </script>
-    <style>
-      @import url("https://p.typekit.net/p.css?s=1&k=vnd5zic&ht=tk&f=39475.39476.39477.39478.39479.39480.39481.39482&a=18673890&app=typekit&e=css");
-      @font-face {
-        font-family: "neo-sans";
-        src: url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("woff2"), url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("woff"), url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/a?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("opentype");
-        font-style: normal;
-        font-weight: 700;
-      }
-      html {
-        font-family: neo-sans;
-        font-weight: 700;
-        font-size: calc(62rem / 16);
-      }
-      body {
-        background: white;
-      }
-      section {
-        border-radius: 1em;
-        padding: 1em;
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        margin-right: -50%;
-        transform: translate(-50%, -50%);
-      }
-    </style>
-  </head>
-  <body>
-    <section>
-      Hello from Render!
-    </section>
-  </body>
-</html>
-`
+app.post("/api/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const users =
+      await sql`SELECT id, email, password FROM projusers WHERE email = ${email}`;
+    const user = users[0];
+
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+
+    if (!passwordMatch) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, username: user.username },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+    res.json({ token });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+app.post("/api/postitems", async (req, res) => {
+  const { name, description, price, stock } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO projitems(name,description,price,stock) VALUES($1,$2,$3,$4)`,
+      [name, description, price, stock]
+    );
+    if (!result) {
+      throw new Error("Error posting items");
+    } else {
+      res.json(result);
+    }
+  } catch (error) {
+    console.log(`${error}`);
+  }
+});
+
+app.get("/api/getitems", async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT * FROM projitems`);
+    if (!result) {
+      throw new Error("Error getting items");
+    } else {
+      res.json(result);
+    }
+  } catch (error) {
+    console.log(`${error}`);
+  }
+});
+
+app.delete("/api/deleteitems/:id", async (req, res) => {
+  const id = req.params.id;
+  try {
+    const result = await pool.query(`DELETE * FROM projitems WHERE id=$1`, [
+      id,
+    ]);
+    if (!result) {
+      throw new Error("Error deleting item");
+    } else {
+      return true;
+    }
+  } catch (error) {
+    console.log(`${error}`);
+  }
+});
+
+app.put("/api/updateitems", async (req, res) => {});
+
+app.listen(PORT, () => {
+  console.log(`Server running on ${PORT}`);
+});
